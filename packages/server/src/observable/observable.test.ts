@@ -195,3 +195,132 @@ test('observableToAsyncIterable() - doesnt hang', async () => {
 
   expect(ee.listenerCount('data')).toBe(0);
 });
+
+test('observableToAsyncIterable() - source emits during teardown', async () => {
+  const ee = new EventEmitter();
+  const obs = observable<number, Error>((observer) => {
+    const onData = (data: number) => {
+      observer.next(data);
+    };
+    ee.on('data', onData);
+    return () => {
+      ee.off('data', onData);
+      // some sources emit a final `complete` when they are torn down,
+      // this should not throw after the stream has been cancelled
+      observer.complete();
+    };
+  });
+
+  setTimeout(() => {
+    ee.emit('data', 1);
+  }, 1);
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(
+    obs,
+    new AbortController().signal,
+  )) {
+    aggregate.push(value);
+    break;
+  }
+
+  expect(aggregate).toEqual([1]);
+  expect(ee.listenerCount('data')).toBe(0);
+});
+
+test('observableToAsyncIterable() - source errors during teardown', async () => {
+  const ee = new EventEmitter();
+  const obs = observable<number, Error>((observer) => {
+    const onData = (data: number) => {
+      observer.next(data);
+    };
+    ee.on('data', onData);
+    return () => {
+      ee.off('data', onData);
+      // some sources emit a final `error` when they are torn down,
+      // this should not throw after the stream has been cancelled
+      observer.error(new Error('teardown error'));
+    };
+  });
+
+  setTimeout(() => {
+    ee.emit('data', 1);
+  }, 1);
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(
+    obs,
+    new AbortController().signal,
+  )) {
+    aggregate.push(value);
+    break;
+  }
+
+  expect(aggregate).toEqual([1]);
+  expect(ee.listenerCount('data')).toBe(0);
+});
+
+test('observableToAsyncIterable() - aborting the signal ends iteration', async () => {
+  const ee = new EventEmitter();
+  const obs = observable<number, Error>((observer) => {
+    const onData = (data: number) => {
+      observer.next(data);
+    };
+    ee.on('data', onData);
+    return () => {
+      ee.off('data', onData);
+      // note: this source does not emit anything more once torn down
+    };
+  });
+
+  const ac = new AbortController();
+  setTimeout(() => {
+    ee.emit('data', 1);
+    ac.abort();
+  }, 1);
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(obs, ac.signal)) {
+    aggregate.push(value);
+  }
+
+  expect(aggregate).toEqual([1]);
+  expect(ee.listenerCount('data')).toBe(0);
+});
+
+test('observableToAsyncIterable() - abort listener is removed once settled', async () => {
+  const ac = new AbortController();
+  const removeEventListenerSpy = vi.spyOn(ac.signal, 'removeEventListener');
+
+  const obs = observable<number, Error>((observer) => {
+    observer.next(1);
+    observer.complete();
+  });
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(obs, ac.signal)) {
+    aggregate.push(value);
+  }
+
+  expect(aggregate).toEqual([1]);
+  expect(removeEventListenerSpy).toHaveBeenCalled();
+});
+
+test('observableToAsyncIterable() - pre-aborted signal does not subscribe', async () => {
+  const subscribe = vi.fn();
+  const obs = observable<number, Error>(() => {
+    subscribe();
+    return () => {
+      // noop
+    };
+  });
+
+  const ac = new AbortController();
+  ac.abort();
+
+  for await (const value of observableToAsyncIterable(obs, ac.signal)) {
+    void value;
+  }
+
+  expect(subscribe).not.toHaveBeenCalled();
+});

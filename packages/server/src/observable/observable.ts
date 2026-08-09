@@ -130,24 +130,61 @@ function observableToReadableStream<TValue>(
   signal: AbortSignal,
 ): ReadableStream<Result<TValue>> {
   let unsub: Unsubscribable | null = null;
+  let active = true;
+  let controllerRef: ReadableStreamDefaultController<Result<TValue>> | null =
+    null;
 
   const onAbort = () => {
+    signal.removeEventListener('abort', onAbort);
     unsub?.unsubscribe();
     unsub = null;
+    if (active) {
+      active = false;
+      // the source might not emit anything more once it has been torn down,
+      // so we close the stream to avoid leaving a pending reader hanging
+      controllerRef?.close();
+    }
+  };
+
+  /** Detach the abort listener once the stream has settled */
+  const onSettled = () => {
+    active = false;
     signal.removeEventListener('abort', onAbort);
   };
 
   return new ReadableStream<Result<TValue>>({
     start(controller) {
+      controllerRef = controller;
+
+      if (signal.aborted) {
+        // no point in subscribing if the signal is already aborted
+        onAbort();
+        return;
+      }
+
       unsub = observable.subscribe({
         next(data) {
+          if (!active) {
+            return;
+          }
           controller.enqueue({ ok: true, value: data });
         },
         error(error) {
+          if (!active) {
+            // the source emitted after the stream was settled - this can
+            // happen during teardown, in which case we drop it
+            return;
+          }
+          onSettled();
           controller.enqueue({ ok: false, error });
           controller.close();
         },
         complete() {
+          if (!active) {
+            // see comment in `error` above
+            return;
+          }
+          onSettled();
           controller.close();
         },
       });
@@ -159,6 +196,7 @@ function observableToReadableStream<TValue>(
       }
     },
     cancel() {
+      active = false;
       onAbort();
     },
   });
