@@ -196,6 +196,8 @@ function observableToReadableStream<TValue>(
       }
     },
     cancel() {
+      // set `active` first so `onAbort` doesn't close an already-cancelled
+      // stream; `onAbort` also detaches the abort listener
       active = false;
       onAbort();
     },

@@ -324,3 +324,52 @@ test('observableToAsyncIterable() - pre-aborted signal does not subscribe', asyn
 
   expect(subscribe).not.toHaveBeenCalled();
 });
+
+test('observableToAsyncIterable() - break unsubscribes without an abort signal', async () => {
+  const teardown = vi.fn();
+  const obs = observable<number, Error>((observer) => {
+    observer.next(1);
+    return teardown;
+  });
+
+  // a signal that is never aborted, mirroring the
+  // `new AbortController().signal` fallback in `subscriptionAsIterable` -
+  // teardown must be driven by the consumer stopping iteration
+  const neverAbortedSignal = new AbortController().signal;
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(
+    obs,
+    neverAbortedSignal,
+  )) {
+    aggregate.push(value);
+    break;
+  }
+
+  expect(aggregate).toEqual([1]);
+  expect(teardown).toHaveBeenCalledTimes(1);
+});
+
+test('observableToAsyncIterable() - consumer cancel detaches the abort listener', async () => {
+  const ac = new AbortController();
+  const removeEventListenerSpy = vi.spyOn(ac.signal, 'removeEventListener');
+
+  const teardown = vi.fn();
+  const obs = observable<number, Error>((observer) => {
+    observer.next(1);
+    return teardown;
+  });
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(obs, ac.signal)) {
+    aggregate.push(value);
+    break;
+  }
+
+  expect(aggregate).toEqual([1]);
+  // the consumer cancelled iteration without aborting the signal, yet the
+  // abort listener is detached and the subscription is torn down
+  expect(removeEventListenerSpy).toHaveBeenCalled();
+  expect(teardown).toHaveBeenCalledTimes(1);
+  expect(ac.signal.aborted).toBe(false);
+});
