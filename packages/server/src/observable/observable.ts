@@ -136,14 +136,14 @@ function observableToReadableStream<TValue>(
 
   const onAbort = () => {
     signal.removeEventListener('abort', onAbort);
-    unsub?.unsubscribe();
-    unsub = null;
     if (active) {
       active = false;
-      // the source might not emit anything more once it has been torn down,
-      // so we close the stream to avoid leaving a pending reader hanging
+      // close before teardown so synchronous teardown emissions are ignored
+      // and a pending reader cannot be left hanging
       controllerRef?.close();
     }
+    unsub?.unsubscribe();
+    unsub = null;
   };
 
   /** Detach the abort listener once the stream has settled */

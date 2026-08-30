@@ -288,6 +288,25 @@ test('observableToAsyncIterable() - aborting the signal ends iteration', async (
   expect(ee.listenerCount('data')).toBe(0);
 });
 
+test('observableToAsyncIterable() - abort ignores source emissions during teardown', async () => {
+  const ac = new AbortController();
+  const obs = observable<number, Error>((observer) => {
+    observer.next(1);
+    return () => {
+      observer.next(2);
+      observer.error(new Error('teardown error'));
+    };
+  });
+
+  const aggregate: unknown[] = [];
+  for await (const value of observableToAsyncIterable(obs, ac.signal)) {
+    aggregate.push(value);
+    ac.abort();
+  }
+
+  expect(aggregate).toEqual([1]);
+});
+
 test('observableToAsyncIterable() - synchronous settlement does not attach an abort listener', async () => {
   const ac = new AbortController();
   const addEventListenerSpy = vi.spyOn(ac.signal, 'addEventListener');
