@@ -288,9 +288,9 @@ test('observableToAsyncIterable() - aborting the signal ends iteration', async (
   expect(ee.listenerCount('data')).toBe(0);
 });
 
-test('observableToAsyncIterable() - abort listener is removed once settled', async () => {
+test('observableToAsyncIterable() - synchronous settlement does not attach an abort listener', async () => {
   const ac = new AbortController();
-  const removeEventListenerSpy = vi.spyOn(ac.signal, 'removeEventListener');
+  const addEventListenerSpy = vi.spyOn(ac.signal, 'addEventListener');
 
   const obs = observable<number, Error>((observer) => {
     observer.next(1);
@@ -303,7 +303,10 @@ test('observableToAsyncIterable() - abort listener is removed once settled', asy
   }
 
   expect(aggregate).toEqual([1]);
-  expect(removeEventListenerSpy).toHaveBeenCalled();
+  expect(addEventListenerSpy).not.toHaveBeenCalled();
+
+  ac.abort();
+  expect(ac.signal.aborted).toBe(true);
 });
 
 test('observableToAsyncIterable() - pre-aborted signal does not subscribe', async () => {

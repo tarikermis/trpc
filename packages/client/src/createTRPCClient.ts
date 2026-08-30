@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import type { Unsubscribable } from '@trpc/server/observable';
 import type {
   AnyProcedure,
@@ -161,7 +160,10 @@ export function createTRPCClientProxy<TRouter extends AnyRouter>(
 ): TRPCClient<TRouter> {
   const proxy = createRecursiveProxy<TRPCClient<TRouter>>(({ path, args }) => {
     const pathCopy = [...path];
-    const clientCallType = pathCopy.pop()!;
+    const clientCallType = pathCopy.pop();
+    if (!clientCallType) {
+      throw new Error('Missing client call type');
+    }
 
     const fullPath = pathCopy.join('.');
 

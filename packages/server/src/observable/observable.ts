@@ -191,7 +191,7 @@ function observableToReadableStream<TValue>(
 
       if (signal.aborted) {
         onAbort();
-      } else {
+      } else if (active) {
         signal.addEventListener('abort', onAbort, { once: true });
       }
     },
